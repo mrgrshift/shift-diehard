@@ -6,9 +6,10 @@ Tool to manage the status of your server, this tool is prepared for Shift versio
 <br>
 #Requisites
     - You need to have Shift installed : https://github.com/shiftcurrency/shift
+    - Start your Shift instance with: forever start app.js
     - Remove your passphrase from your shift/config.json
     - Edit diehard_config.json file according to your delegate
-    - You need to have jq installed: `sudo apt-get install jq`
+    - You need to have jq installed: sudo apt-get install jq
 
 #Installation
 Just do the following:
