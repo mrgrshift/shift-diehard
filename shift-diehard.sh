@@ -488,17 +488,24 @@ shift_diehard_check(){
     echo "[$NOW][INF] - Shift is running good" | tee -a $LOG
   fi
   local_check
-  cd $DIEHARD_HOME
+  top_height
+  diff=$(( $TOP_HEIGHT - $LOCAL_HEIGHT ))
   NOW=$(date +"%d-%m-%Y - %T")
-  if [ "$LOCAL_HEIGHT" -eq "0" ]; then
-	echo "[$NOW][ERR] - X Failed to create snapshot. Your localhost is not responding." | tee -a $LOG
+  cd $DIEHARD_HOME
+  if [ "$diff" -lt "3" ]; then
+    if [ "$LOCAL_HEIGHT" -eq "0" ]; then
+        echo "[$NOW][ERR] - X Failed to create snapshot. Your localhost is not responding." | tee -a $LOG
+    else
+        echo "[$NOW][INF] - Top Heigh = $TOP_HEIGHT , Local Height = $LOCAL_HEIGHT. Difference = $diff" | tee -a $LOG
+        if [ "$SYNC" = "true" ]; then
+            echo "[$NOW][INF] - Blockchain syncing, wait until the blockchain is synced.." | tee -a $LOG
+            sync_status
+	       SYNC="0"
+        fi
+        create_snapshot
+    fi
   else
-     if [ "$SYNC" = "true" ]; then
-        echo "[$NOW][INF] - Blockchain syncing, wait until the blockchain is synced.." | tee -a $LOG
-        sync_status
-	    SYNC="0"
-     fi
-     create_snapshot
+    echo "[$NOW][ERR] - X Failed to create snapshot. Top Heigh = $TOP_HEIGHT , Local Height = $LOCAL_HEIGHT." | tee -a $LOG
   fi
   rotate_logs
 }
