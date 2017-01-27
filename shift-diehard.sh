@@ -18,29 +18,75 @@ DIEHARD_HOME=$(pwd)
 
 					
 install_diehard(){
-  #Checking prerequisites
-  forever=$(forever list | grep "No forever processes running")
-  if [ "$forever" != "" ]; then
-    echo "You must have running Shift with forever, please stop your Shift instance and start it with: forever start app.js"
-    echo "After that you can run again: bash shift-diehard.sh install"
-    exit 0
+  OK="0"
+  if [ -f "diehard_conf.json" ]; then
+	OK="1"
+	read -p "**A previous installation was detected, do you want to proceed anyway (y/n)?" -n 1 -r
+	if [[  $REPLY =~ ^[Nn]$ ]]
+	   then
+		OK=0
+	fi
   fi
+  if [ "$OK" -eq "0" ]; then
+	echo "*****************************"
+	echo "Diehard installation.."
+	echo "Important information before you install. This script will handle your Shift instance, automaticly will perform forever start app.js and forever stop app.js so please stop your Shift instance before starting this script."
+	echo
+	echo -n "Confirm the path of your Shift installation? (leave empty to choose default /home/$USER/shift/ ) :"
+	read SHIFT_PATH
+	if [ "$SHIFT_PATH" == "" ]; then
+	   SHIFT_PATH="/home/$USER/shift/"
+	fi
+	echo
+	echo -n "Enter your delegate name: "
+	read DELEGATE_NAME
+	echo -n "Enter your dlegate address: "
+        read DELEGATE_ADDRESS
+	echo -n "Enter your delegate passphrase: "
+	read SECRET
+	echo
+	echo "If you have a backup server enter the following information, if not just press enter."
+        echo -n "Backup IP: "
+        read BACKUP_IP
+        echo -n "Backup Port: "
+        read BACKUP_PORT
 
-  mkdir -p snapshot
-  mkdir -p logs
-  sudo chmod a+x shift-diehard.sh
-  sudo chown postgres:${USER:=$(/usr/bin/id -run)} snapshot
-  sudo chmod -R 777 snapshot
-  sudo chmod -R 777 logs
+	echo
+  	mkdir -p snapshot
+  	mkdir -p logs
+  	sudo chmod a+x shift-diehard.sh
+  	sudo chown postgres:${USER:=$(/usr/bin/id -run)} snapshot
+  	sudo chmod -R 777 snapshot
+  	sudo chmod -R 777 logs
 
-  echo "#!/bin/sh" >  start_diehard_check.sh
-  echo "cd $DIEHARD_HOME" >> start_diehard_check.sh
-  echo "bash shift-diehard.sh check" >> start_diehard_check.sh
-  sudo chmod a+x start_diehard_check.sh
-  echo "Installation completed, now you can execute: shift-diehard.sh start"
-  echo
-  echo "To check and create snapshots every hour execute: sudo crontab -e    ..and add the following line:"
-  echo "0 * * * * /bin/su $USER -c \"cd $(pwd); bash -c $(pwd)/start_diehard_check.sh'; exec bash'\""
+	jqinstalled=$(dpkg-query -l 'jq' | grep "jq")
+	if [ "$jqinstalled" == "" ]; then
+		echo "'jq' is not installed..Proceed to install it.."
+		sudo apt-get install jq
+	fi
+
+  	echo "#!/bin/sh" >  start_diehard_check.sh
+  	echo "cd $DIEHARD_HOME" >> start_diehard_check.sh
+  	echo "bash shift-diehard.sh check" >> start_diehard_check.sh
+  	sudo chmod a+x start_diehard_check.sh
+  	echo "Installation completed, now you can execute: shift-diehard.sh start"
+  	echo
+  	echo "To check and create snapshots every hour execute: sudo crontab -e    ..and add the following line:"
+  	echo "0 * * * * /bin/su $USER -c \"cd $(pwd); bash -c $(pwd)/start_diehard_check.sh'; exec bash'\""
+
+	echo
+	echo "Also remember you need to have 'jq' intalled, if not, run: sudo apt-get install jq"
+
+	CONF_FILE=diehard_conf.json
+	echo "{" > $CONF_FILE
+	echo "	\"shift_path\" : \"$SHIFT_PATH\"," >> $CONF_FILE
+	echo "	\"delegate_name\" : \"$DELEGATE_NAME\"," >> $CONF_FILE
+	echo "	\"passphrase\" : \"$SECRET\"," >> $CONF_FILE
+	echo "	\"delegate_address\" : \"$DELEGATE_ADDRESS\"," >> $CONF_FILE
+	echo "	\"backup_ip\" : \"$BACKUP_IP\"," >> $CONF_FILE
+	echo "	\"backup_port\" : \"$BACKUP_PORT\"" >> $CONF_FILE
+	echo "}" >> $CONF_FILE
+  fi
 }
 
 					
@@ -391,6 +437,22 @@ rotate_logs(){
     fi
 }
 
+                                        
+start_shift(){
+  NOW=$(date +"%d-%m-%Y - %T")
+  echo "[$NOW][INF] - Starting Shift.." | tee -a $LOG
+  echo -n "[$NOW][INF] - tryng forever stop app.js: " | tee -a $LOG
+  cd $SHIFT
+  forever stop app.js | tee -a $LOG
+  NOW=$(date +"%d-%m-%Y - %T")
+  echo -n "[$NOW][INF] - Starting Shift forver start app.js: " | tee -a $LOG
+  forever start app.js | tee -a $LOG
+  sleep 3
+  localhost_check
+  NOW=$(date +"%d-%m-%Y - %T")
+  echo "[$NOW][RELOAD][INF] - Your Shift instance has started." | tee -a $LOG
+}
+
 					
 initialize(){
   NOW=$(date +"%d-%m-%Y - %T")
@@ -433,6 +495,7 @@ initialize(){
   BACKUP_IP="${v1//\"/}"
   v1=$(cat $config | jq '.backup_port')
   BACKUP_PORT="${v1//\"/}"
+  start_shift
 }
 
 					
