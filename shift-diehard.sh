@@ -250,7 +250,7 @@ backup_forging(){
 					
 local_forging(){
   if [ "$DELEGATE_ADDRESS" != "" ]; then
-  if [ "BACKUP_HTTP" != "0" ]; then
+  if [ "$BACKUP_HTTP" != "0" ]; then
     STATUS=$(curl -sI -k --max-time 3 --connect-timeout 3 "$BACKUP_HTTP://$BACKUP_IP:$BACKUP_PORT/api/peers" | grep "HTTP" | cut -f2 -d" ")
         RESPONSE=$(curl -s -k $BACKUP_FORGING_STATUS | jq '.enabled') #true or false
         if [ "$RESPONSE" = "true" ]; then #If remote is disabled, proceed to enable
@@ -674,7 +674,11 @@ shift_diehard_start(){
   curl -s -k -H "Content-Type: application/json" -X POST -d "{\"secret\":\"$SECRET\"}" $URL_LOCAL_DISABLE | tee -a $LOG
   echo " " | tee -a $LOG
   echo -n "[$NOW][INF] - Initial forging backup disable: " | tee -a $LOG
-  curl -s -k -H "Content-Type: application/json" -X POST -d "{\"secret\":\"$SECRET\"}" $URL_BACKUP_DISABLE | tee -a $LOG
+  if [ "$BACKUP_HTTP" != "0" ]; then
+    curl -s -k -H "Content-Type: application/json" -X POST -d "{\"secret\":\"$SECRET\"}" $URL_BACKUP_DISABLE | tee -a $LOG
+  else
+    echo "no backup selected."
+  fi
   echo " " | tee -a $LOG
 
   BAD_CONSENSUS="0"
