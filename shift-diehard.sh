@@ -73,11 +73,9 @@ install_diehard(){
   	echo
   	echo "To check and create snapshots every hour execute: sudo crontab -e    ..and add the following line:"
   	echo "0 * * * * /bin/su $USER -c \"cd $(pwd); bash -c $(pwd)/start_diehard_check.sh'; exec bash'\""
+    echo
 
-	echo
-	echo "Also remember you need to have 'jq' intalled, if not, run: sudo apt-get install jq"
-
-	CONF_FILE=diehard_conf.json
+	CONF_FILE=diehard_config.json
 	echo "{" > $CONF_FILE
 	echo "	\"shift_path\" : \"$SHIFT_PATH\"," >> $CONF_FILE
 	echo "	\"delegate_name\" : \"$DELEGATE_NAME\"," >> $CONF_FILE
@@ -124,12 +122,12 @@ create_snapshot() {
 					
 restore_snapshot(){
   NOW=$(date +"%d-%m-%Y - %T")
-  echo "[$NOW][SNAPSHOT][INF] - Restoring snapshot" | tee -a $LOG
+  echo "[$NOW][SNAPSHOT][ERR] - Restoring snapshot" | tee -a $LOG
   SNAPSHOT_FILE=`ls -t snapshot/shift_db* | head  -1`
   if [ -z "$SNAPSHOT_FILE" ]; then
     echo "[$NOW][SNAPSHOT][ERR] - X No snapshot to restore, please consider create it first" | tee -a $LOG
   else
-    echo "[$NOW][SNAPSHOT][INF] - Snapshot to restore = $SNAPSHOT_FILE" | tee -a $LOG
+    echo "[$NOW][SNAPSHOT][ERR] - Snapshot to restore = $SNAPSHOT_FILE" | tee -a $LOG
     #snapshot restoring..
     export PGPASSWORD=$DB_PASS
     pg_restore -d $DB_NAME "$SNAPSHOT_FILE" -U $DB_USER -h localhost -c -n public | tee -a $LOG
@@ -137,7 +135,7 @@ restore_snapshot(){
     if [ $? != 0 ]; then
         echo "[$NOW][SNAPSHOT][ERR] -- X Failed to restore snapshot" | tee -a $LOG
     else
-        echo "[$NOW][SNAPSHOT][INF] -- Snapshot restored successfully" | tee -a $LOG
+        echo "[$NOW][SNAPSHOT][ERR] -- Snapshot restored successfully" | tee -a $LOG
     fi
   fi
 }
@@ -239,7 +237,7 @@ backup_forging(){
             RESPONSE=$(curl -s -k $BACKUP_FORGING_STATUS | jq '.enabled') #true or false
             echo " " | tee -a $LOG
             if [ "$RESPONSE" = "true" ]; then #Remote forging = true
-                echo "[$NOW][INF] - Enabled backup forging successfully." | tee -a $LOG
+                echo "[$NOW][INF] - Backup forging enabled successfully." | tee -a $LOG
             fi
         fi
   fi
@@ -262,7 +260,7 @@ local_forging(){
             RESPONSE=$(curl -s -k $BACKUP_FORGING_STATUS | jq '.enabled') #true or false
             echo " " | tee -a $LOG
             if [ "$RESPONSE" = "false" ]; then #Remote forging = true
-                echo "[$NOW][INF] - Disabled backup forging successfully." | tee -a $LOG
+                echo "[$NOW][INF] - Backup forging disabled successfully." | tee -a $LOG
             fi
         fi
   fi
@@ -303,10 +301,10 @@ sync_status(){
         NOW=$(date +"%d-%m-%Y - %T")
         if [ "$check1" -lt "$check_top" ]; then
            pending=$(( $check_top - $check1 ))
-           echo "[$NOW][SYNC] - $check1 ---> $TOP_HEIGHT still syncing... pending $pending" | tee -a $LOG
+           echo "[$NOW][SYNC][ERR] - $check1 ---> $TOP_HEIGHT still syncing... pending $pending" | tee -a $LOG
         else
-           echo "[$NOW][SYNC] - $check1 - TOP HEIGHT $TOP_HEIGHT" | tee -a $LOG
-           echo "[$NOW][SYNC] - Sync process finish.." | tee -a $LOG
+           echo "[$NOW][SYNC][ERR] - $check1 - TOP HEIGHT $TOP_HEIGHT" | tee -a $LOG
+           echo "[$NOW][SYNC][ERR] - Sync process finish.." | tee -a $LOG
            break
         fi
     done
@@ -450,7 +448,7 @@ start_shift(){
   sleep 3
   localhost_check
   NOW=$(date +"%d-%m-%Y - %T")
-  echo "[$NOW][RELOAD][INF] - Your Shift instance has started." | tee -a $LOG
+  echo "[$NOW][INF] - Your Shift instance has started." | tee -a $LOG
 }
 
 					
@@ -458,6 +456,10 @@ initialize(){
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW] - Initializing.." | tee -a $LOG
   config=diehard_config.json
+  if ! [ -f $config ]; then
+    echo "No diehard installation detected, please run: bash shift_diehard.sh install"
+    exit 0
+  fi
   v1=$(cat $config | jq '.shift_path')
   SHIFT="${v1//\"/}"
   SHIFT_CONFIG=$SHIFT'config.json'
