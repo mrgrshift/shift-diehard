@@ -40,7 +40,7 @@ install_diehard(){
 	echo
 	echo -n "Enter your delegate name: "
 	read DELEGATE_NAME
-	echo -n "Enter your dlegate address: "
+	echo -n "Enter your delegate address: "
         read DELEGATE_ADDRESS
 	echo -n "Enter your delegate passphrase: "
 	read SECRET
@@ -497,7 +497,6 @@ initialize(){
   BACKUP_IP="${v1//\"/}"
   v1=$(cat $config | jq '.backup_port')
   BACKUP_PORT="${v1//\"/}"
-  start_shift
 }
 
 					
@@ -635,6 +634,7 @@ backup_test(){
 shift_diehard_start(){
   LOG=$DIEHARD_HOME/logs/diehard.log
   initialize
+  start_shift
   forever=$(forever list | grep "No forever processes running")
   if [ "$forever" != "" ]; then
     echo "You must have running Shift with forever, please stop your Shift instance and start it with: forever start app.js" | tee -a $LOG
