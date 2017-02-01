@@ -40,7 +40,7 @@ install_diehard(){
 	echo
 	echo -n "Enter your delegate name: "
 	read DELEGATE_NAME
-	echo -n "Enter your delegate address: "
+	echo -n "Enter your dlegate address: "
         read DELEGATE_ADDRESS
 	echo -n "Enter your delegate passphrase: "
 	read SECRET
@@ -90,7 +90,7 @@ install_diehard(){
 					
 local_check(){
   LOCAL_HEIGHT="0"
-  STATUS=$(curl -sI -k --max-time 300 --connect-timeout 10 "$HTTP://127.0.0.1:$LOCAL_PORT/api/peers" | grep "HTTP" | cut -f2 -d" ")
+  STATUS=$(curl -sI -k --max-time 3 --connect-timeout 3 "$HTTP://127.0.0.1:$LOCAL_PORT/api/peers" | grep "HTTP" | cut -f2 -d" ")
   if [[ "$STATUS" =~ ^[0-9]+$ ]]; then
     if [ "$STATUS" -eq "200" ]; then
         LOCAL_HEIGHT=$(curl -s -k $HTTP://127.0.0.1:$LOCAL_PORT/api/loader/status/sync | jq '.height')
@@ -105,6 +105,15 @@ local_check(){
 
 					
 create_snapshot() {
+  #Rotate snapshots
+  if [ -f "snapshot/shift_db_snapshot.tar" ]; then
+     if [ -f "snapshot/shift_db_snapshot_1.tar" ]; then
+        mv snapshot/shift_db_snapshot_1.tar snapshot/shift_db_snapshot_2.tar
+        mv snapshot/shift_db_snapshot.tar snapshot/shift_db_snapshot_1.tar
+     else
+        mv snapshot/shift_db_snapshot.tar snapshot/shift_db_snapshot_1.tar
+     fi
+  fi
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW][SNAPSHOT][INF] - Creating snapshot.." | tee -a $LOG
   rm -f 'snapshot/shift_db_snapshot.tar'
@@ -121,9 +130,18 @@ create_snapshot() {
 
 					
 restore_snapshot(){
+  echo "[$NOW][REBUILD][ERR] - forever stop app.js " | tee -a $LOG
+  forever stop app.js &> /dev/null
+  cd $DIEHARD_HOME
+
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW][SNAPSHOT][ERR] - Restoring snapshot" | tee -a $LOG
-  SNAPSHOT_FILE=`ls -t snapshot/shift_db* | head  -1`
+  if [ "$RESTORE_ATTEMPT" -eq "0" ]; then
+    SNAPSHOT_FILE="snapshot/shift_db_snapshot.tar"
+  else
+    SNAPSHOT_FILE="snapshot/shift_db_snapshot_$RESTORE_ATTEMPT.tar"
+  fi
+
   if [ -z "$SNAPSHOT_FILE" ]; then
     echo "[$NOW][SNAPSHOT][ERR] - X No snapshot to restore, please consider create it first" | tee -a $LOG
   else
@@ -138,6 +156,12 @@ restore_snapshot(){
         echo "[$NOW][SNAPSHOT][ERR] -- Snapshot restored successfully" | tee -a $LOG
     fi
   fi
+
+  cd $SHIFT
+  NOW=$(date +"%d-%m-%Y - %T")
+  echo "[$NOW][REBUILD][ERR] - forver start app.js " | tee -a $LOG
+  forever start app.js &> /dev/null
+  sleep 3
 }
 
 					
@@ -187,9 +211,23 @@ top_height(){
    fi
 }
 
+                    
+get_remote_height(){
+    if [ "$BACKUP_HTTP" != "0" ]; then
+        REMOTE_HEIGHT=$(curl -s -k --max-time 3 --connect-timeout 3 $BACKUP_HTTP://$BACKUP_IP:$BACKUP_PORT/api/loader/status/sync | jq '.height')
+        if [ -z "$REMOTE_HEIGHT" ]; then
+                sleep 1
+                REMOTE_HEIGHT=$(curl -s -k $BACKUP_HTTP://$BACKUP_IP:$BACKUP_PORT/api/loader/status/sync | jq '.height')
+                if [ -z "$REMOTE_HEIGHT" ]; then
+                        echo "Remote server not responding to get remote_height $REMOTE_IP" | tee -a $LOG
+                        REMOTE_HEIGHT="0"
+                fi
+        fi
+    fi
+}
 					
 get_local_height(){
-        LOCAL_HEIGHT=$(curl -s -k $HTTP://127.0.0.1:$LOCAL_PORT/api/loader/status/sync | jq '.height')
+        LOCAL_HEIGHT=$(curl -s -k --max-time 3 --connect-timeout 3 $HTTP://127.0.0.1:$LOCAL_PORT/api/loader/status/sync | jq '.height')
         if [ -z "$LOCAL_HEIGHT" ]; then
            sleep 1
            LOCAL_HEIGHT=$(curl -s -k $HTTP://127.0.0.1:$LOCAL_PORT/api/loader/status/sync | jq '.height')
@@ -230,7 +268,6 @@ backup_forging(){
     STATUS=$(curl -sI -k --max-time 3 --connect-timeout 3 "$BACKUP_HTTP://$BACKUP_IP:$BACKUP_PORT/api/peers" | grep "HTTP" | cut -f2 -d" ")
         RESPONSE=$(curl -s -k $BACKUP_FORGING_STATUS | jq '.enabled') #true or false
         if [ "$RESPONSE" = "false" ]; then #If remote is disabled, proceed to enable
-            echo " " | tee -a $LOG
             NOW=$(date +"%d-%m-%Y - %T")
             echo -n "[$NOW][INF] - Enable backup forging: " | tee -a $LOG
             curl -s -k -H "Content-Type: application/json" -X POST -d "{\"secret\":\"$SECRET\"}" $URL_BACKUP_ENABLE | tee -a $LOG
@@ -290,6 +327,7 @@ local_forging(){
 
 					
 sync_status(){
+    sync_counter="0"
     while true; do
         check1=`curl -k -s "$HTTP://127.0.0.1:$LOCAL_PORT/api/loader/status/sync"| jq '.height'`
         sleep 7
@@ -305,7 +343,19 @@ sync_status(){
         else
            echo "[$NOW][SYNC][ERR] - $check1 - TOP HEIGHT $TOP_HEIGHT" | tee -a $LOG
            echo "[$NOW][SYNC][ERR] - Sync process finish.." | tee -a $LOG
+           RESTORE_ATTEMPT="0"
            break
+        fi
+        ((sync_counter+=1))
+        if [ "$sync_counter" -gt "20" ]; then
+            ((RESTORE_ATTEMPT+=1))
+            if [ "$RESTORE_ATTEMPT" -gt "2" ]; then
+                RESTORE_ATTEMPT="2"
+                echo "[$NOW][SYNC][ERR] - You have problems syncing, trying to sync from attempt 2 again..." | tee -a $LOG
+            else
+                echo "[$NOW][SYNC][ERR] - You have problems syncing, trying to sync from attempt $RESTORE_ATTEMPT again..." | tee -a $LOG
+                break
+            fi
         fi
     done
 }
@@ -320,6 +370,19 @@ get_consensus(){
         LOCAL_CONSENSUS=$(printf %.0f $LOCAL_CONSENSUS)
         if ! [[ "$LOCAL_CONSENSUS" =~ ^[0-9]+$ ]]; then
             LOCAL_CONSENSUS="100"
+        fi
+    fi
+    
+    REMOTE_CONSENSUS="0"
+    if [ "$BACKUP_HTTP" != "0" ]; then
+        REMOTE_CONSENSUS=$(curl -s -k $BACKUP_HTTP://$BACKUP_IP:$BACKUP_PORT/api/loader/status/sync | jq '.consensus')
+        if [ "$REMOTE_CONSENSUS" == "null" ]; then
+            REMOTE_CONSENSUS="0"
+        else
+            REMOTE_CONSENSUS=$(printf %.0f $REMOTE_CONSENSUS)
+            if ! [[ "$REMOTE_CONSENSUS" =~ ^[0-9]+$ ]]; then
+                REMOTE_CONSENSUS="0"
+            fi
         fi
     fi
 }
@@ -351,6 +414,30 @@ get_nextturn(){
   fi
 }
 
+                    
+check_forged_blocks(){
+    if [ "$NEXTTURN" -le "10" ] && [ "$FORGE_FLAG" -eq "0" ]; then
+        FORGE_FLAG="1"
+        FORGE_COUNTER="0"
+    fi
+    
+    if [ "$FORGE_FLAG" -eq "1" ]; then
+        NOW=$(date +"%d-%m-%Y - %T")
+        have_forged=`tail logs/shift.log -n 100 | grep "Forged"`
+        if [ -n "$have_forged" ]; then
+            echo "[$NOW][FORGED] - $have_forged" | tee -a $LOG
+            FORGE_FLAG="0"
+        fi
+        if [ "$NEXTTURN" -gt "100" ]; then
+            ((FORGE_COUNTER+=1))
+            if [ "$FORGE_COUNTER" -eq "3" ]; then
+                echo "[$NOW][FORGED][ERR] - It seems that you lost the block" | tee -a $LOG
+                FORGE_FLAG="0"
+            fi
+        fi
+    fi
+}
+
 					
 found_fork(){
     FORK=$1
@@ -377,16 +464,15 @@ found_fork(){
 start_reload(){
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW][RELOAD][ERR] - Starting reload.." | tee -a $LOG
-  echo -n "[$NOW][RELOAD][ERR] - forever stop app.js: " | tee -a $LOG
-  forever stop app.js | tee -a $LOG
+  echo "[$NOW][RELOAD][ERR] - forever stop app.js " | tee -a $LOG
+  forever stop app.js &> /dev/null
   NOW=$(date +"%d-%m-%Y - %T")
-  echo -n "[$NOW][RELOAD][ERR] - forver start app.js: " | tee -a $LOG
-  forever start app.js | tee -a $LOG
+  echo "[$NOW][RELOAD][ERR] - forver start app.js " | tee -a $LOG
+  forever start app.js &> /dev/null
   sleep 3
   localhost_check
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW][RELOAD][ERR] - Reload finished." | tee -a $LOG
-  local_forging
 }
 
 					
@@ -395,21 +481,33 @@ start_rebuild(){
   echo "[$NOW][REBUILD][ERR] - Starting rebuild" | tee -a $LOG
   echo "[$NOW][REBUILD][ERR] - Rebuilding with heights: Highest: $TOP_HEIGHT -- Local: $LOCAL_HEIGHT ($LOCAL_CONSENSUS %) $BAD_CONSENSUS" | tee -a $LOG
   backup_forging
-  echo -n "[$NOW][REBUILD][ERR] - forever stop app.js: " | tee -a $LOG
-  forever stop app.js | tee -a $LOG
-  cd $DIEHARD_HOME
   restore_snapshot
-  cd $SHIFT
-  NOW=$(date +"%d-%m-%Y - %T")
-  echo -n "[$NOW][REBUILD][ERR] - forver start app.js: " | tee -a $LOG
-  forever start app.js | tee -a $LOG
-  sleep 3
   localhost_check
   backup_forging
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW][REBUILD][ERR] - Rebuild finish.. start syncing.." | tee -a $LOG
   sync_status
-  local_forging
+  if [ "$RESTORE_ATTEMPT" -ne "0" ]; then
+    restore_snapshot
+    localhost_check
+    backup_forging
+    NOW=$(date +"%d-%m-%Y - %T")
+    echo "[$NOW][REBUILD][ERR] - Rebuild finish.. start syncing.." | tee -a $LOG
+  fi
+  if [ "$RESTORE_ATTEMPT" -ne "0" ]; then
+    restore_snapshot
+    localhost_check
+    backup_forging
+    NOW=$(date +"%d-%m-%Y - %T")
+    echo "[$NOW][REBUILD][ERR] - Rebuild finish.. start syncing.." | tee -a $LOG
+  fi
+  if [ "$RESTORE_ATTEMPT" -ne "0" ]; then
+    restore_snapshot
+    localhost_check
+    backup_forging
+    NOW=$(date +"%d-%m-%Y - %T")
+    echo "[$NOW][REBUILD][ERR] - Something is wrong with your syncing" | tee -a $LOG
+  fi
 }
 
 					
@@ -438,17 +536,18 @@ rotate_logs(){
                                         
 start_shift(){
   NOW=$(date +"%d-%m-%Y - %T")
-  echo "[$NOW][INF] - Starting Shift.." | tee -a $LOG
-  echo -n "[$NOW][INF] - tryng forever stop app.js: " | tee -a $LOG
+  forever=$(forever list | grep "No forever processes running")
   cd $SHIFT
-  forever stop app.js | tee -a $LOG
-  NOW=$(date +"%d-%m-%Y - %T")
-  echo -n "[$NOW][INF] - Starting Shift forver start app.js: " | tee -a $LOG
-  forever start app.js | tee -a $LOG
-  sleep 3
-  localhost_check
-  NOW=$(date +"%d-%m-%Y - %T")
-  echo "[$NOW][INF] - Your Shift instance has started." | tee -a $LOG
+  if [ "$forever" != "" ]; then
+    echo "[$NOW][INF] - Starting Shift.." | tee -a $LOG
+    NOW=$(date +"%d-%m-%Y - %T")
+    echo "[$NOW][INF] - Starting Shift forever start app.js " | tee -a $LOG
+    forever start app.js &> /dev/null
+    sleep 3
+    localhost_check
+    NOW=$(date +"%d-%m-%Y - %T")
+    echo "[$NOW][INF] - Your Shift instance has started." | tee -a $LOG
+  fi
 }
 
 					
@@ -497,6 +596,7 @@ initialize(){
   BACKUP_IP="${v1//\"/}"
   v1=$(cat $config | jq '.backup_port')
   BACKUP_PORT="${v1//\"/}"
+  start_shift
 }
 
 					
@@ -505,20 +605,7 @@ force_restore(){
   initialize
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW][INF] - Starting restore by force" | tee -a $LOG
-  local_check
-  NOW=$(date +"%d-%m-%Y - %T")
-  if [ "$LOCAL_HEIGHT" -ne "0" ]; then
-    echo "[$NOW][INF] - Shift is running.. stopping.." | tee -a $LOG
-    cd $SHIFT
-    echo -n "[$NOW][INF] - forever stop app.js: " | tee -a $LOG
-    forever stop app.js | tee -a $LOG
-  fi
-  cd $DIEHARD_HOME
   restore_snapshot
-  cd $SHIFT
-  NOW=$(date +"%d-%m-%Y - %T")
-  echo -n "[$NOW][INF] - forever start app.js: " | tee -a $LOG
-  forever start app.js | tee -a $LOG
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW][INF] - Restore by force finish" | tee -a $LOG
 }
@@ -553,6 +640,7 @@ shift_diehard_check(){
   fi
   local_check
   top_height
+  get_consensus
   diff=$(( $TOP_HEIGHT - $LOCAL_HEIGHT ))
   NOW=$(date +"%d-%m-%Y - %T")
   cd $DIEHARD_HOME
@@ -560,7 +648,7 @@ shift_diehard_check(){
     if [ "$LOCAL_HEIGHT" -eq "0" ]; then
         echo "[$NOW][ERR] - X Failed to create snapshot. Your localhost is not responding." | tee -a $LOG
     else
-        echo "[$NOW][INF] - Top Heigh = $TOP_HEIGHT , Local Height = $LOCAL_HEIGHT. Difference = $diff" | tee -a $LOG
+        echo "[$NOW][INF] - Top Heigh = $TOP_HEIGHT , Local Height = $LOCAL_HEIGHT. Difference = $diff , Local Consensus = $LOCAL_CONSENSUS %" | tee -a $LOG
         if [ "$SYNC" = "true" ]; then
             echo "[$NOW][INF] - Blockchain syncing, wait until the blockchain is synced.." | tee -a $LOG
             sync_status
@@ -569,7 +657,7 @@ shift_diehard_check(){
         create_snapshot
     fi
   else
-    echo "[$NOW][ERR] - X Failed to create snapshot. Top Heigh = $TOP_HEIGHT , Local Height = $LOCAL_HEIGHT." | tee -a $LOG
+    echo "[$NOW][ERR] - X Failed to create snapshot. Top Heigh = $TOP_HEIGHT , Local Height = $LOCAL_HEIGHT. Difference = $diff , Local Consensus = $LOCAL_CONSENSUS %." | tee -a $LOG
   fi
   rotate_logs
 }
@@ -634,7 +722,6 @@ backup_test(){
 shift_diehard_start(){
   LOG=$DIEHARD_HOME/logs/diehard.log
   initialize
-  start_shift
   forever=$(forever list | grep "No forever processes running")
   if [ "$forever" != "" ]; then
     echo "You must have running Shift with forever, please stop your Shift instance and start it with: forever start app.js" | tee -a $LOG
@@ -684,18 +771,29 @@ shift_diehard_start(){
   BAD_CONSENSUS="0"
   PRV="0"
   SLEEP_TIME="20"
+  FORGE_FLAG="0"
+  RESTORE_ATTEMPT="0"
   cd $SHIFT
   while true; do
     localhost_check
-    local_forging
     top_height
     get_local_height
+    get_remote_height
     get_consensus
     get_nextturn
+    check_forged_blocks
 
     is_forked=`tail logs/shift.log -n 40 | grep "Fork"`
     if [ -n "$is_forked" ]; then
         found_fork "$is_forked"
+    fi
+
+    if [ "$LOCAL_CONSENSUS" -lt "51" ]; then
+        ((BAD_CONSENSUS+=1))
+        backup_forging
+    else
+        BAD_CONSENSUS="0"
+        local_forging
     fi
 
     diff=$(( $TOP_HEIGHT - $LOCAL_HEIGHT ))
@@ -711,17 +809,11 @@ shift_diehard_start(){
         fi
     fi
 
-    if [ "$LOCAL_CONSENSUS" -lt "51" ]; then
-        ((BAD_CONSENSUS+=1))
-    else
-        BAD_CONSENSUS="0"
-    fi
-
-    if [ "$BAD_CONSENSUS" -eq "24" ] || [ "$BAD_CONSENSUS" -eq "16" ] || [ "$BAD_CONSENSUS" -eq "8" ]; then
+    if [ "$BAD_CONSENSUS" -eq "40" ] || [ "$BAD_CONSENSUS" -eq "24" ] || [ "$BAD_CONSENSUS" -eq "16" ] || [ "$BAD_CONSENSUS" -eq "8" ]; then
         start_reload
     fi
 
-    if [ "$BAD_CONSENSUS" -gt "30" ] && [ "$NEXTTURN" -gt "100" ]; then
+    if [ "$BAD_CONSENSUS" -gt "50" ] && [ "$NEXTTURN" -gt "100" ]; then
         start_rebuild
     fi
 
@@ -732,7 +824,7 @@ shift_diehard_start(){
             echo "Start normal surveillance" | tee -a $LOG
         fi
 
-        echo "[$NOW][INF] - Forging $forging | Top height = $TOP_HEIGHT | Local height = $LOCAL_HEIGHT | Consensus = $LOCAL_CONSENSUS % | Next turn = $NEXTTURN s" | tee -a $LOG
+        echo "[$NOW][INF] - Forging $forging | TH = $TOP_HEIGHT | LH = $LOCAL_HEIGHT | LC = $LOCAL_CONSENSUS % | RH $REMOTE_HEIGHT | RC $REMOTE_CONSENSUS | NT = $NEXTTURN s " | tee -a $LOG
         PRV=$NEXTTURN
     else
         if [ "$PRV" -eq "$NEXTTURN" ]; then
@@ -740,7 +832,7 @@ shift_diehard_start(){
         else
             echo " " | tee -a $LOG
             if [ "$NEXTTURN" -ne "0" ]; then echo "Start sharper surveillance.." | tee -a $LOG; fi
-            echo "[$NOW][INF] - Forging $forging | Top height = $TOP_HEIGHT | Local height = $LOCAL_HEIGHT | Consensus = $LOCAL_CONSENSUS % | Next turn = $NEXTTURN s" | tee -a $LOG
+            echo "[$NOW][INF] - Forging $forging | TH = $TOP_HEIGHT | LH = $LOCAL_HEIGHT | LC = $LOCAL_CONSENSUS % | RH $REMOTE_HEIGHT | RC $REMOTE_CONSENSUS | NT = $NEXTTURN s" | tee -a $LOG
             PRV=$NEXTTURN
         fi
     fi
