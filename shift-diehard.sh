@@ -447,9 +447,9 @@ found_fork(){
     FORK_JSON=$(echo $FORK | awk -F "Fork - " '{ print $2 }')
     v1=$(echo $FORK_JSON | jq '.delegate')
     PK="${v1//\"/}"
-    v1=$(curl -s -k -X GET http://localhost:8000/api/delegates/get?publicKey=$PK | jq '.delegate.username')
+    v1=$(curl -s -k -X GET $HTTP://127.0.0.1:$LOCAL_PORT/api/delegates/get?publicKey=$PK | jq '.delegate.username')
     FORK_DELEGATE="${v1//\"/}"
-    FORK_CAUSE=$(echo $FORK | jq '.cause')
+    FORK_CAUSE=$(echo $FORK_JSON | jq '.cause')
 
     echo "$FORK" | grep "\"cause\":2" | tee -a $LOG
 	if [ $? = 0 ]; then
