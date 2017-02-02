@@ -123,6 +123,7 @@ create_snapshot() {
   NOW=$(date +"%d-%m-%Y - %T")
   if [ $? != 0 ]; then
     echo "[$NOW][SNAPSHOT][ERR] -- X Failed to create snapshot." | tee -a $LOG
+    cp snapshot/shift_db_snapshot_1.tar snapshot/shift_db_snapshot.tar
   else
     dbSize=`psql -d $DB_NAME -U $DB_USER -h localhost -p 5432 -t -c "select pg_size_pretty(pg_database_size('$DB_NAME'));"`
     echo "[$NOW][SNAPSHOT][INF] -- New snapshot created successfully at block $LOCAL_HEIGHT ($dbSize)." | tee -a $LOG
@@ -175,6 +176,7 @@ localhost_check(){
                 break
              fi
            else
+                backup_forging
                 NOW=$(date +"%d-%m-%Y - %T")
                 echo "[$NOW][ERR] - Your localhost is not responding.." | tee -a $LOG
                 if [ "$l_count" -gt "1" ]; then
@@ -463,6 +465,7 @@ found_fork(){
 
 					
 start_reload(){
+  backup_forging
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW][RELOAD][ERR] - Starting reload.." | tee -a $LOG
   echo "[$NOW][RELOAD][ERR] - forever stop app.js " | tee -a $LOG
@@ -761,6 +764,9 @@ shift_diehard_start(){
   echo "[$NOW][INF] - Delegate name : $DELEGATE_NAME" | tee -a $LOG
   echo "[$NOW][INF] - Delegate address : $DELEGATE_ADDRESS" | tee -a $LOG
   echo "[$NOW][INF] - Delegate publicKey : $PUBLICKEY" | tee -a $LOG
+  
+  ****ESPECIFICAR CONEXIONES HTTPS Y SERVIDORES
+  
   echo -n "[$NOW][INF] - Initial forging local disable: " | tee -a $LOG
   curl -s -k -H "Content-Type: application/json" -X POST -d "{\"secret\":\"$SECRET\"}" $URL_LOCAL_DISABLE | tee -a $LOG
   echo " " | tee -a $LOG
@@ -803,12 +809,12 @@ shift_diehard_start(){
     diff=$(( $TOP_HEIGHT - $LOCAL_HEIGHT ))
     if [ "$diff" -gt "3" ] && [ "$NEXTTURN" -gt "50" ]; then
         NOW=$(date +"%d-%m-%Y - %T")
-        echo "[$NOW][ERR] - Top height $TOP_HEIGHT - Local height $LOCAL_HEIGHT = difference $diff .. reload -- turn $NEXTTURN s" | tee -a $LOG
+        echo "[$NOW][ERR] - Top height $TOP_HEIGHT - Local height $LOCAL_HEIGHT = difference $diff -- Local Consensus $LOCAL_CONSENSUS.. reload -- turn $NEXTTURN s" | tee -a $LOG
         start_reload
         get_local_height
         diff=$(( $TOP_HEIGHT - $LOCAL_HEIGHT ))
         ## Rebuild if still out of sync after reload
-        if [ "$diff" -gt "4" ] && [ "$NEXTTURN" -gt "180" ]; then
+        if [ "$diff" -gt "4" ]; then
             start_rebuild
         fi
     fi
