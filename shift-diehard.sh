@@ -118,7 +118,8 @@ create_snapshot() {
   echo "[$NOW][SNAPSHOT][INF] - Creating snapshot.." | tee -a $LOG
   rm -f 'snapshot/shift_db_snapshot.tar'
   export PGPASSWORD=$DB_PASS
-  pg_dump -U $DB_USER -h localhost -p 5432 -Ft $DB_NAME > 'snapshot/shift_db_snapshot.tar' | tee -a $LOG
+  sudo su postgres -c "pg_dump -Ft $DB_NAME > 'snapshot/shift_db_snapshot.tar'" | tee -a $LOG
+  #pg_dump -U $DB_USER -h localhost -p 5432 -Ft $DB_NAME > 'snapshot/shift_db_snapshot.tar' | tee -a $LOG
   NOW=$(date +"%d-%m-%Y - %T")
   if [ $? != 0 ]; then
     echo "[$NOW][SNAPSHOT][ERR] -- X Failed to create snapshot." | tee -a $LOG
@@ -500,6 +501,7 @@ start_rebuild(){
     backup_forging
     NOW=$(date +"%d-%m-%Y - %T")
     echo "[$NOW][REBUILD][ERR] - Rebuild finish.. start syncing.." | tee -a $LOG
+    sync_status
   fi
   if [ "$RESTORE_ATTEMPT" -ne "0" ]; then
     restore_snapshot
@@ -507,6 +509,7 @@ start_rebuild(){
     backup_forging
     NOW=$(date +"%d-%m-%Y - %T")
     echo "[$NOW][REBUILD][ERR] - Something is wrong with your syncing" | tee -a $LOG
+    sync_status
   fi
 }
 
@@ -553,6 +556,7 @@ start_shift(){
 					
 initialize(){
   NOW=$(date +"%d-%m-%Y - %T")
+  echo " " | tee -a $LOG
   echo "[$NOW] - Initializing.." | tee -a $LOG
   config=diehard_config.json
   if ! [ -f $config ]; then
@@ -709,7 +713,7 @@ backup_test(){
   curl -s -k -H "Content-Type: application/json" -X POST -d "{\"secret\":\"$SECRET\"}" $URL_BACKUP_DISABLE | tee -a $LOG
     RESPONSE=$(curl -s -k $BACKUP_FORGING_STATUS | jq '.enabled') #true or false
     echo " " | tee -a $LOG
-    if [ "$RESPONSE" = "false" ]; then #Remote forging = true
+    if [ "$RESPONSE" = "false" ]; then
         echo "[$NOW][INF] - Disable backup forging successfully." | tee -a $LOG
     else
         echo "[$NOW][INF] - Could not disable backup forging. Please check your backup configuration and try again." | tee -a $LOG
@@ -810,6 +814,11 @@ shift_diehard_start(){
     fi
 
     if [ "$BAD_CONSENSUS" -eq "40" ] || [ "$BAD_CONSENSUS" -eq "24" ] || [ "$BAD_CONSENSUS" -eq "16" ] || [ "$BAD_CONSENSUS" -eq "8" ]; then
+        start_reload
+    fi
+    
+    get_consensus
+    if ( [ "$NEXTTURN" -gt "20" ] && [ "$NEXTTURN" -lt "100" ] ) && [ "$LOCAL_CONSENSUS" -lt "51" ]; then
         start_reload
     fi
 
