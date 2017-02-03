@@ -764,19 +764,18 @@ shift_diehard_start(){
   echo "[$NOW][INF] - Delegate name : $DELEGATE_NAME" | tee -a $LOG
   echo "[$NOW][INF] - Delegate address : $DELEGATE_ADDRESS" | tee -a $LOG
   echo "[$NOW][INF] - Delegate publicKey : $PUBLICKEY" | tee -a $LOG
-  
-  ****ESPECIFICAR CONEXIONES HTTPS Y SERVIDORES
-  
   echo -n "[$NOW][INF] - Initial forging local disable: " | tee -a $LOG
   curl -s -k -H "Content-Type: application/json" -X POST -d "{\"secret\":\"$SECRET\"}" $URL_LOCAL_DISABLE | tee -a $LOG
   echo " " | tee -a $LOG
+  echo "[$NOW][INF] - Localhost server is : $HTTP://127.0.0.1:$LOCAL_PORT" | tee -a $LOG
   echo -n "[$NOW][INF] - Initial forging backup disable: " | tee -a $LOG
   if [ "$BACKUP_HTTP" != "0" ]; then
     curl -s -k -H "Content-Type: application/json" -X POST -d "{\"secret\":\"$SECRET\"}" $URL_BACKUP_DISABLE | tee -a $LOG
+    echo " " | tee -a $LOG
+    echo "[$NOW][INF] - Backup server is : $BACKUP_HTTP://$BACKUP_IP:$BACKUP_PORT" | tee -a $LOG
   else
     echo "no backup selected."
   fi
-  echo " " | tee -a $LOG
 
   BAD_CONSENSUS="0"
   PRV="0"
