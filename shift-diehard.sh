@@ -330,7 +330,6 @@ local_forging(){
 
 					
 sync_status(){
-    sync_counter="0"
     while true; do
         check1=`curl -k -s "$HTTP://127.0.0.1:$LOCAL_PORT/api/loader/status/sync"| jq '.height'`
         sleep 7
@@ -346,19 +345,7 @@ sync_status(){
         else
            echo "[$NOW][SYNC][ERR] - $check1 - TOP HEIGHT $TOP_HEIGHT" | tee -a $LOG
            echo "[$NOW][SYNC][ERR] - Sync process finish.." | tee -a $LOG
-           RESTORE_ATTEMPT="0"
            break
-        fi
-        ((sync_counter+=1))
-        if [ "$sync_counter" -gt "20" ]; then
-            ((RESTORE_ATTEMPT+=1))
-            if [ "$RESTORE_ATTEMPT" -gt "2" ]; then
-                RESTORE_ATTEMPT="2"
-                echo "[$NOW][SYNC][ERR] - You have problems syncing, trying to sync from attempt 2 again..." | tee -a $LOG
-            else
-                echo "[$NOW][SYNC][ERR] - You have problems syncing, trying to sync from attempt $RESTORE_ATTEMPT again..." | tee -a $LOG
-                break
-            fi
         fi
     done
 }
@@ -491,29 +478,6 @@ start_rebuild(){
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW][REBUILD][ERR] - Rebuild finish.. start syncing.." | tee -a $LOG
   sync_status
-  if [ "$RESTORE_ATTEMPT" -ne "0" ]; then
-    restore_snapshot
-    localhost_check
-    backup_forging
-    NOW=$(date +"%d-%m-%Y - %T")
-    echo "[$NOW][REBUILD][ERR] - Rebuild finish.. start syncing.." | tee -a $LOG
-  fi
-  if [ "$RESTORE_ATTEMPT" -ne "0" ]; then
-    restore_snapshot
-    localhost_check
-    backup_forging
-    NOW=$(date +"%d-%m-%Y - %T")
-    echo "[$NOW][REBUILD][ERR] - Rebuild finish.. start syncing.." | tee -a $LOG
-    sync_status
-  fi
-  if [ "$RESTORE_ATTEMPT" -ne "0" ]; then
-    restore_snapshot
-    localhost_check
-    backup_forging
-    NOW=$(date +"%d-%m-%Y - %T")
-    echo "[$NOW][REBUILD][ERR] - Something is wrong with your syncing" | tee -a $LOG
-    sync_status
-  fi
 }
 
 					
@@ -781,7 +745,6 @@ shift_diehard_start(){
   PRV="0"
   SLEEP_TIME="20"
   FORGE_FLAG="0"
-  RESTORE_ATTEMPT="0"
   cd $SHIFT
   while true; do
     localhost_check
@@ -799,7 +762,11 @@ shift_diehard_start(){
 
     if [ "$LOCAL_CONSENSUS" -lt "51" ]; then
         ((BAD_CONSENSUS+=1))
-        backup_forging
+        if [ "$PUBLICKEY" != "" ]; then
+            backup_forging
+        else
+            start reload
+        fi
     else
         BAD_CONSENSUS="0"
         local_forging
