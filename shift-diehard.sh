@@ -138,11 +138,7 @@ restore_snapshot(){
 
   NOW=$(date +"%d-%m-%Y - %T")
   echo "[$NOW][SNAPSHOT][ERR] - Restoring snapshot" | tee -a $LOG
-  if [ "$RESTORE_ATTEMPT" -eq "0" ]; then
-    SNAPSHOT_FILE="snapshot/shift_db_snapshot.tar"
-  else
-    SNAPSHOT_FILE="snapshot/shift_db_snapshot_$RESTORE_ATTEMPT.tar"
-  fi
+  SNAPSHOT_FILE="snapshot/shift_db_snapshot.tar"
 
   if [ -z "$SNAPSHOT_FILE" ]; then
     echo "[$NOW][SNAPSHOT][ERR] - X No snapshot to restore, please consider create it first" | tee -a $LOG
